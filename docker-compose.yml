@@ -28,5 +28,6 @@ services:
       DISCOVERY_ON_DROPDOWN_CHANGE: "true"
       DISCOVERY_ON_BIRTH: "true"
       UNPUBLISH_ON_REMOVE: "true"
+      HEARTBEAT_INTERVAL_SECONDS: "60"              # seconds between heartbeats (supports floats e.g. 0.3), 0 to disable
       RETAIN: "true"
       DEBUG: "false"
