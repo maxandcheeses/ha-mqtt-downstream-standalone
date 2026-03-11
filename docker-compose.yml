@@ -1,0 +1,32 @@
+services:
+  mqtt-downstream:
+    build: .
+    container_name: mqtt_downstream
+    restart: unless-stopped
+    environment:
+      # ── Home Assistant ─────────────────────────────────────────────
+      HA_TOKEN: "your_long_lived_access_token"       # Profile → Security → Long-Lived Access Tokens
+      HA_WS_URL: "ws://192.168.1.x:8123/api/websocket"
+
+      # ── MQTT Broker ────────────────────────────────────────────────
+      MQTT_BASE: "homeassistant-guest"
+      DISCOVERY_PREFIX: "homeassistant-guest"
+      BROKER_HOST: "192.168.1.x"
+      BROKER_PORT: "1883"
+      BROKER_USERNAME: "mqtt_downstream"
+      BROKER_PASSWORD: "your_broker_password"
+
+      # ── Entity selection (input_select entity IDs in HA) ───────────
+      ENTITIES_SELECT: "input_select.mqtt_downstream_entities"
+      AREAS_SELECT: "input_select.mqtt_downstream_areas"
+      DOMAINS_SELECT: "input_select.mqtt_downstream_domains"
+      EXCLUDES_SELECT: "input_select.mqtt_downstream_excludes"
+
+      # ── Optional ───────────────────────────────────────────────────
+      ENABLED_ENTITY: ""                             # e.g. input_boolean.mqtt_downstream_enabled
+      DISCOVERY_ON_STARTUP: "true"
+      DISCOVERY_ON_DROPDOWN_CHANGE: "true"
+      DISCOVERY_ON_BIRTH: "true"
+      UNPUBLISH_ON_REMOVE: "true"
+      RETAIN: "true"
+      DEBUG: "false"
