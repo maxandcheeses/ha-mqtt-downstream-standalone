@@ -221,16 +221,20 @@ def discovery_payload(entity_id: str, state_obj: dict, mqtt_base: str, discovery
     if domain == "light":
         color_modes = attrs.get("supported_color_modes") or []
         effects     = attrs.get("effect_list") or []
+        has_brightness = any(m in color_modes for m in ("brightness", "color_temp", "rgb", "rgbw", "rgbww", "hs", "xy", "white"))
+        has_color_temp = "color_temp" in color_modes
         payload = {**common,
-            "command_topic":            f"{base}/set",
-            "payload_on":               "ON",
-            "payload_off":              "OFF",
-            "brightness_state_topic":   f"{base}/brightness",
-            "brightness_command_topic": f"{base}/set_brightness",
-            "brightness_scale":         255,
-            "color_temp_state_topic":   f"{base}/color_temp",
-            "color_temp_command_topic": f"{base}/set_color_temp",
+            "command_topic": f"{base}/set",
+            "payload_on":    "ON",
+            "payload_off":   "OFF",
         }
+        if has_brightness:
+            payload["brightness_state_topic"]   = f"{base}/brightness"
+            payload["brightness_command_topic"] = f"{base}/set_brightness"
+            payload["brightness_scale"]         = 255
+        if has_color_temp:
+            payload["color_temp_state_topic"]   = f"{base}/color_temp"
+            payload["color_temp_command_topic"] = f"{base}/set_color_temp"
         if "rgb" in color_modes:
             payload["rgb_state_topic"]   = f"{base}/rgb"
             payload["rgb_command_topic"] = f"{base}/set_rgb"
@@ -258,44 +262,51 @@ def discovery_payload(entity_id: str, state_obj: dict, mqtt_base: str, discovery
     if domain == "cover":
         features = attrs.get("supported_features") or 0
         payload = {**common,
-            "command_topic":      f"{base}/set",
-            "position_topic":     f"{base}/position",
-            "set_position_topic": f"{base}/set_position",
-            "payload_open":       "open",
-            "payload_close":      "close",
-            "payload_stop":       "stop",
-            "state_open":         "open",
-            "state_closed":       "closed",
-            "state_opening":      "opening",
-            "state_closing":      "closing",
+            "command_topic": f"{base}/set",
+            "payload_open":  "open",
+            "payload_close": "close",
+            "payload_stop":  "stop",
+            "state_open":    "open",
+            "state_closed":  "closed",
+            "state_opening": "opening",
+            "state_closing": "closing",
         }
+        if features & 4:    # SUPPORT_SET_COVER_POSITION
+            payload["position_topic"]     = f"{base}/position"
+            payload["set_position_topic"] = f"{base}/set_position"
         if features & 128:  # SUPPORT_SET_TILT_POSITION
-            payload["tilt_status_topic"]   = f"{base}/tilt"
-            payload["tilt_command_topic"]  = f"{base}/set_tilt"
+            payload["tilt_status_topic"]  = f"{base}/tilt"
+            payload["tilt_command_topic"] = f"{base}/set_tilt"
         return payload
 
     if domain == "climate":
+        fan_modes    = attrs.get("fan_modes") or []
+        swing_modes  = attrs.get("swing_modes") or []
+        preset_modes = attrs.get("preset_modes") or []
         payload = {**common,
-            "temperature_command_topic":    f"{base}/set_temperature",
-            "temperature_state_topic":      f"{base}/temperature",
-            "current_temperature_topic":    f"{base}/current_temperature",
-            "mode_command_topic":           f"{base}/set_mode",
-            "mode_state_topic":             f"{base}/state",
-            "action_topic":                 f"{base}/action",
-            "fan_mode_command_topic":       f"{base}/set_fan_mode",
-            "fan_mode_state_topic":         f"{base}/fan_mode",
-            "swing_mode_command_topic":     f"{base}/set_swing_mode",
-            "swing_mode_state_topic":       f"{base}/swing_mode",
-            "preset_mode_command_topic":    f"{base}/set_preset_mode",
-            "preset_mode_state_topic":      f"{base}/preset_mode",
-            "modes":                        attrs.get("hvac_modes") or [],
-            "fan_modes":                    attrs.get("fan_modes") or [],
-            "swing_modes":                  attrs.get("swing_modes") or [],
-            "preset_modes":                 attrs.get("preset_modes") or [],
-            "min_temp":                     attrs.get("min_temp", 7),
-            "max_temp":                     attrs.get("max_temp", 35),
-            "temp_step":                    attrs.get("target_temp_step", 0.5),
+            "temperature_command_topic":  f"{base}/set_temperature",
+            "temperature_state_topic":    f"{base}/temperature",
+            "current_temperature_topic":  f"{base}/current_temperature",
+            "mode_command_topic":         f"{base}/set_mode",
+            "mode_state_topic":           f"{base}/state",
+            "action_topic":               f"{base}/action",
+            "modes":                      attrs.get("hvac_modes") or [],
+            "min_temp":                   attrs.get("min_temp", 7),
+            "max_temp":                   attrs.get("max_temp", 35),
+            "temp_step":                  attrs.get("target_temp_step", 0.5),
         }
+        if fan_modes:
+            payload["fan_mode_command_topic"] = f"{base}/set_fan_mode"
+            payload["fan_mode_state_topic"]   = f"{base}/fan_mode"
+            payload["fan_modes"]              = fan_modes
+        if swing_modes:
+            payload["swing_mode_command_topic"] = f"{base}/set_swing_mode"
+            payload["swing_mode_state_topic"]   = f"{base}/swing_mode"
+            payload["swing_modes"]              = swing_modes
+        if preset_modes:
+            payload["preset_mode_command_topic"] = f"{base}/set_preset_mode"
+            payload["preset_mode_state_topic"]   = f"{base}/preset_mode"
+            payload["preset_modes"]              = preset_modes
         # Dual setpoint support
         if attrs.get("target_temp_high") is not None:
             payload["temperature_high_command_topic"] = f"{base}/set_target_temp_high"
@@ -305,15 +316,18 @@ def discovery_payload(entity_id: str, state_obj: dict, mqtt_base: str, discovery
         return payload
 
     if domain == "fan":
+        features     = attrs.get("supported_features") or 0
+        preset_modes = attrs.get("preset_modes") or []
         payload = {**common,
-            "command_topic":             f"{base}/set",
-            "payload_on":                "ON",
-            "payload_off":               "OFF",
-            "percentage_state_topic":    f"{base}/percentage",
-            "percentage_command_topic":  f"{base}/set_percentage",
-            "speed_range_min":           1,
-            "speed_range_max":           100,
+            "command_topic": f"{base}/set",
+            "payload_on":    "ON",
+            "payload_off":   "OFF",
         }
+        if features & 1:  # SUPPORT_SET_SPEED
+            payload["percentage_state_topic"]   = f"{base}/percentage"
+            payload["percentage_command_topic"] = f"{base}/set_percentage"
+            payload["speed_range_min"]          = 1
+            payload["speed_range_max"]          = 100
         if attrs.get("oscillating") is not None:
             payload["oscillation_state_topic"]   = f"{base}/oscillation"
             payload["oscillation_command_topic"] = f"{base}/set_oscillation"
@@ -322,7 +336,6 @@ def discovery_payload(entity_id: str, state_obj: dict, mqtt_base: str, discovery
         if attrs.get("direction") is not None:
             payload["direction_state_topic"]   = f"{base}/direction"
             payload["direction_command_topic"] = f"{base}/set_direction"
-        preset_modes = attrs.get("preset_modes") or []
         if preset_modes:
             payload["preset_mode_state_topic"]   = f"{base}/preset_mode"
             payload["preset_mode_command_topic"] = f"{base}/set_preset_mode"
@@ -394,43 +407,50 @@ def discovery_payload(entity_id: str, state_obj: dict, mqtt_base: str, discovery
         }
 
     if domain == "vacuum":
+        features       = attrs.get("supported_features") or 0
         fan_speed_list = attrs.get("fan_speed_list") or []
         payload = {**common,
             "command_topic":          f"{base}/set",
-            "battery_level_topic":    f"{base}/battery_level",
-            "charging_topic":         f"{base}/charging",
-            "cleaning_topic":         f"{base}/cleaning",
-            "docked_topic":           f"{base}/docked",
-            "error_topic":            f"{base}/error",
             "payload_start":          "start",
             "payload_pause":          "pause",
             "payload_stop":           "stop",
             "payload_return_to_base": "return_to_base",
             "payload_locate":         "locate",
             "payload_clean_spot":     "clean_spot",
+            "payload_clean_area":     "clean_area",
+            "send_command_topic":     f"{base}/send_command",
         }
+        if attrs.get("battery_level") is not None:
+            payload["battery_level_topic"] = f"{base}/battery_level"
+        if features & 64:   # SUPPORT_STATUS
+            payload["charging_topic"] = f"{base}/charging"
+            payload["cleaning_topic"] = f"{base}/cleaning"
+            payload["docked_topic"]   = f"{base}/docked"
+            payload["error_topic"]    = f"{base}/error"
         if fan_speed_list:
             payload["fan_speed_state_topic"]   = f"{base}/fan_speed"
             payload["fan_speed_command_topic"] = f"{base}/set_fan_speed"
             payload["fan_speed_list"]          = fan_speed_list
-        payload["payload_clean_area"]    = "clean_area"
-        payload["send_command_topic"]    = f"{base}/send_command"
         return payload
 
     if domain == "humidifier":
-        return {**common,
+        available_modes = attrs.get("available_modes") or []
+        payload = {**common,
             "command_topic":                 f"{base}/set",
             "payload_on":                    "ON",
             "payload_off":                   "OFF",
             "target_humidity_state_topic":   f"{base}/target_humidity",
             "target_humidity_command_topic": f"{base}/set_target_humidity",
-            "current_humidity_topic":        f"{base}/current_humidity",
-            "mode_state_topic":              f"{base}/mode",
-            "mode_command_topic":            f"{base}/set_mode",
-            "modes":                         attrs.get("available_modes") or [],
             "min_humidity":                  attrs.get("min_humidity", 0),
             "max_humidity":                  attrs.get("max_humidity", 100),
         }
+        if attrs.get("current_humidity") is not None:
+            payload["current_humidity_topic"] = f"{base}/current_humidity"
+        if available_modes:
+            payload["mode_state_topic"]   = f"{base}/mode"
+            payload["mode_command_topic"] = f"{base}/set_mode"
+            payload["modes"]              = available_modes
+        return payload
 
     if domain == "alarm_control_panel":
         return {**common,
@@ -471,18 +491,23 @@ def discovery_payload(entity_id: str, state_obj: dict, mqtt_base: str, discovery
         return payload
 
     if domain == "water_heater":
-        return {**common,
-            "temperature_state_topic":    f"{base}/temperature",
-            "temperature_command_topic":  f"{base}/set_temperature",
-            "current_temperature_topic":  f"{base}/current_temperature",
-            "mode_state_topic":           f"{base}/mode",
-            "mode_command_topic":         f"{base}/set_operation_mode",
-            "away_mode_state_topic":      f"{base}/away_mode",
-            "away_mode_command_topic":    f"{base}/set_away_mode",
-            "modes":                      attrs.get("operation_list") or [],
-            "min_temp":                   attrs.get("min_temp", 7),
-            "max_temp":                   attrs.get("max_temp", 60),
+        features       = attrs.get("supported_features") or 0
+        operation_list = attrs.get("operation_list") or []
+        payload = {**common,
+            "temperature_state_topic":   f"{base}/temperature",
+            "temperature_command_topic": f"{base}/set_temperature",
+            "current_temperature_topic": f"{base}/current_temperature",
+            "min_temp":                  attrs.get("min_temp", 7),
+            "max_temp":                  attrs.get("max_temp", 60),
         }
+        if operation_list:
+            payload["mode_state_topic"]   = f"{base}/mode"
+            payload["mode_command_topic"] = f"{base}/set_operation_mode"
+            payload["modes"]              = operation_list
+        if features & 2:  # SUPPORT_AWAY_MODE
+            payload["away_mode_state_topic"]   = f"{base}/away_mode"
+            payload["away_mode_command_topic"] = f"{base}/set_away_mode"
+        return payload
 
     if domain == "siren":
         return {**common,
