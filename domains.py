@@ -15,12 +15,22 @@ DOMAIN_MAP = {
     "input_button":   "button",
 }
 
+# Domains that need a different MQTT discovery component type than their HA domain
+DISCOVERY_DOMAIN_MAP = {
+    "timer": "sensor",
+}
+
 def mqtt_domain(entity_id: str) -> str:
     domain = entity_id.split(".")[0]
     return DOMAIN_MAP.get(domain, domain)
 
 def entity_slug(entity_id: str) -> str:
     return entity_id.split(".")[1]
+
+def discovery_domain(entity_id: str) -> str:
+    """Return the MQTT discovery component type for an entity (may differ from mqtt_domain)."""
+    domain = mqtt_domain(entity_id)
+    return DISCOVERY_DOMAIN_MAP.get(domain, domain)
 
 def format_state(state: str, domain: str) -> str:
     if domain == "lock":

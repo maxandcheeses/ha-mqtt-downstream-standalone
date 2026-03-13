@@ -19,7 +19,7 @@ import paho.mqtt.client as mqtt
 import websockets
 
 from domains import (
-    mqtt_domain, entity_slug, format_state,
+    mqtt_domain, entity_slug, discovery_domain, format_state,
     get_attribute_payloads, discovery_payload, resolve_command
 )
 
@@ -412,7 +412,7 @@ class MQTTDownstream:
         else:
             log.warning(
                 "MQTT TLS is NOT configured — broker traffic is unencrypted. "
-                "See docs/mqtt-tls.md for why this matters and how to set up certs."
+                "See docs/mqtt-tls.md in the repo for why this matters and how to set up certs."
             )
 
         def on_connect(client, userdata, flags, reason_code, properties=None):
@@ -487,27 +487,34 @@ class MQTTDownstream:
         base   = f"{MQTT_BASE}/{domain}/{slug}"
 
         self.mqttc.publish(f"{base}/state", format_state(state, domain), retain=RETAIN)
-        for subtopic, payload in get_attribute_payloads(domain, attrs).items():
-            self.mqttc.publish(f"{base}/{subtopic}", payload, retain=RETAIN)
+        attr_payloads = get_attribute_payloads(domain, attrs)
+        if domain == "timer":
+            # Timer attributes published as a single JSON blob to json_attributes_topic
+            if attr_payloads:
+                self.mqttc.publish(f"{base}/attributes", json.dumps(attr_payloads), retain=RETAIN)
+        else:
+            for subtopic, payload in attr_payloads.items():
+                self.mqttc.publish(f"{base}/{subtopic}", payload, retain=RETAIN)
 
     def _publish_discovery(self, entity_id: str, state_obj: dict):
         domain  = mqtt_domain(entity_id)
+        disc_domain = discovery_domain(entity_id)
         slug    = entity_slug(entity_id)
         payload = discovery_payload(entity_id, state_obj, MQTT_BASE, DISCOVERY_PREFIX)
         if payload is None:
             log.warning("No discovery payload for %s (domain=%s)", entity_id, domain)
             return
         self.mqttc.publish(
-            f"{DISCOVERY_PREFIX}/{domain}/{slug}/config",
+            f"{DISCOVERY_PREFIX}/{disc_domain}/{slug}/config",
             json.dumps(payload),
             retain=RETAIN
         )
 
     def _unpublish_discovery(self, entity_id: str):
         """Clear discovery for an entity by publishing an empty retained payload."""
-        domain = mqtt_domain(entity_id)
-        slug   = entity_slug(entity_id)
-        topic  = f"{DISCOVERY_PREFIX}/{domain}/{slug}/config"
+        disc_domain = discovery_domain(entity_id)
+        slug        = entity_slug(entity_id)
+        topic       = f"{DISCOVERY_PREFIX}/{disc_domain}/{slug}/config"
         self.mqttc.publish(topic, "", retain=RETAIN)
         log.debug("Cleared discovery for %s", entity_id)
 
