@@ -289,10 +289,16 @@ class MQTTDownstream:
             if mid and mid in self._pending:
                 self._pending.pop(mid).set_result(msg)
             elif msg.get("type") == "event":
-                event = msg.get("event", {})
-                if event.get("event_type") == "state_changed":
+                event     = msg.get("event", {})
+                event_type = event.get("event_type", "")
+                if event_type == "state_changed":
                     asyncio.create_task(
                         self._handle_state_changed(event.get("data", {}))
+                    )
+                elif event_type in ("timer.started", "timer.restarted", "timer.paused",
+                                    "timer.cancelled", "timer.finished"):
+                    asyncio.create_task(
+                        self._handle_timer_event(event_type, event.get("data", {}))
                     )
 
     async def _authenticate(self):
@@ -365,7 +371,12 @@ class MQTTDownstream:
 
     async def _subscribe_events(self):
         await self._send({"type": "subscribe_events", "event_type": "state_changed"})
-        log.info("Subscribed to state_changed events")
+        await self._send({"type": "subscribe_events", "event_type": "timer.started"})
+        await self._send({"type": "subscribe_events", "event_type": "timer.restarted"})
+        await self._send({"type": "subscribe_events", "event_type": "timer.paused"})
+        await self._send({"type": "subscribe_events", "event_type": "timer.cancelled"})
+        await self._send({"type": "subscribe_events", "event_type": "timer.finished"})
+        log.info("Subscribed to state_changed and timer events")
 
     async def _call_service(self, domain: str, service: str, entity_id: str, data: dict):
         await self._send({
@@ -540,6 +551,25 @@ class MQTTDownstream:
         self._discovery_task = asyncio.create_task(self._run_discovery())
 
     # ── Event handlers ────────────────────────────────────────────────────────
+
+    async def _handle_timer_event(self, event_type: str, data: dict):
+        """Handle timer.* events — re-fetch state from HA and publish immediately."""
+        entity_id = data.get("entity_id", "")
+        if not entity_id or entity_id not in self._resolved_entities:
+            return
+        if not self._is_enabled():
+            return
+
+        # Re-fetch the current state directly so we have the freshest finishes_at
+        result = await self._send({"type": "get_states"})
+        states = {s["entity_id"]: s for s in (result.get("result") or [])}
+        new_state = states.get(entity_id)
+        if new_state is None:
+            return
+
+        self.states[entity_id] = new_state
+        log.debug("Timer event %s for %s — publishing state", event_type, entity_id)
+        self._publish_state(entity_id, new_state)
 
     def _is_enabled(self) -> bool:
         """Return False if enabled_entity is configured and in a falsy state."""
