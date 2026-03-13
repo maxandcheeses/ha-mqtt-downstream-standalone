@@ -94,7 +94,8 @@ class MQTTDownstream:
         self._loop: asyncio.AbstractEventLoop | None = None
         self._resolved_entities: list[str] = []  # expanded at startup
         self._previous_entities: list[str] = []  # used to detect removals
-        self._area_entity_map: dict[str, list[str]] = {}  # area_id → [entity_ids]
+        self._area_entity_map: dict[str, list[str]] = {}  # area_name → [entity_ids]
+        self._area_id_map: dict[str, str] = {}            # area_id → area_name
 
     # ── Entity list ───────────────────────────────────────────────────────────
 
@@ -137,17 +138,33 @@ class MQTTDownstream:
 
         # ── Step 2: areas_select ──
         if areas:
-            known_areas = {name.lower() for name in self._area_entity_map}
+            # Normalise: if a requested value matches an area_id, resolve it to the area name
+            def _resolve_area(requested: str) -> str:
+                """Return the area name for a given input (accepts name or area_id, case-insensitive)."""
+                req_lower = requested.lower()
+                # Check by name first
+                for name in self._area_entity_map:
+                    if name.lower() == req_lower:
+                        return name
+                # Fall back: check area_id lookup
+                for area_id, name in self._area_id_map.items():
+                    if area_id.lower() == req_lower:
+                        return name
+                return ""
+
+            known_names = {name.lower() for name in self._area_entity_map}
+            known_ids   = {aid.lower() for aid in self._area_id_map}
             for requested in areas:
-                if requested not in known_areas:
-                    log.warning("Area %r not found in HA — no entities added", requested)
-            for area_name, entity_ids in self._area_entity_map.items():
-                if area_name.lower() in areas:
-                    for eid in entity_ids:
+                if requested.lower() not in known_names and requested.lower() not in known_ids:
+                    log.warning("Area %r not found in HA (tried as name and area_id) — no entities added", requested)
+            for requested in areas:
+                resolved_name = _resolve_area(requested)
+                if resolved_name and resolved_name in self._area_entity_map:
+                    for eid in self._area_entity_map[resolved_name]:
                         if eid not in seen:
                             resolved.append(eid)
                             seen.add(eid)
-                            log.debug("Area %r added entity %s", area_name, eid)
+                            log.debug("Area %r added entity %s", resolved_name, eid)
 
         # ── Step 3: domains_select — add all entities of listed domains ──
         domains = self.domain_include
@@ -333,6 +350,8 @@ class MQTTDownstream:
                 entity_map.setdefault(area_name, []).append(entry["entity_id"])
 
         self._area_entity_map = entity_map
+        # Build area_id → area_name lookup for matching by either id or name
+        self._area_id_map = {area_id: name for area_id, name in areas.items()}
         log.info("Area map built: %d areas (%d total areas in registry)", len(entity_map), len(areas))
         if DEBUG:
             for area, eids in sorted(entity_map.items()):
@@ -552,24 +571,40 @@ class MQTTDownstream:
         self._loop = asyncio.get_event_loop()
         self._setup_mqtt()
 
-        async with websockets.connect(HA_WS_URL, max_size=10 * 1024 * 1024) as ws:  # 10MB limit
-            self.ws = ws
-            await self._authenticate()
+        # Backoff schedule: 2s, 4s, 8s, 16s, 30s, 30s, ... (capped at 30s after 10 retries)
+        _BACKOFF = [2, 4, 8, 16, 30]
+        attempt = 0
 
-            # Start reader as background task so _send() futures can be resolved
-            reader_task = asyncio.create_task(self._ws_reader())
-            await asyncio.sleep(0)  # yield to event loop so reader_task starts
+        while True:
+            try:
+                async with websockets.connect(HA_WS_URL, max_size=10 * 1024 * 1024) as ws:
+                    self.ws = ws
+                    attempt = 0  # reset on successful connection
+                    await self._authenticate()
 
-            await self._fetch_all_states()
-            await self._fetch_area_entity_map()
-            await self._subscribe_events()
-            if HEARTBEAT_INTERVAL_SECONDS > 0:
-                self._publish_heartbeat_discovery()
-                asyncio.create_task(self._heartbeat_loop())
-            self._schedule_discovery()
+                    # Start reader as background task so _send() futures can be resolved
+                    reader_task = asyncio.create_task(self._ws_reader())
+                    await asyncio.sleep(0)  # yield to event loop so reader_task starts
 
-            # Wait for reader forever (exits only on disconnect)
-            await reader_task
+                    await self._fetch_all_states()
+                    await self._fetch_area_entity_map()
+                    await self._subscribe_events()
+                    if HEARTBEAT_INTERVAL_SECONDS > 0:
+                        self._publish_heartbeat_discovery()
+                        asyncio.create_task(self._heartbeat_loop())
+                    self._schedule_discovery()
+
+                    # Wait for reader forever (exits only on disconnect)
+                    await reader_task
+
+            except Exception as exc:
+                attempt += 1
+                delay = _BACKOFF[min(attempt - 1, len(_BACKOFF) - 1)]
+                log.warning(
+                    "HA WebSocket disconnected (attempt %d): %s — retrying in %ds",
+                    attempt, exc, delay,
+                )
+                await asyncio.sleep(delay)
 
 
 if __name__ == "__main__":
