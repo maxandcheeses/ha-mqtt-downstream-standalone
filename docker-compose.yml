@@ -3,9 +3,10 @@ services:
     build: .
     container_name: mqtt_downstream
     restart: unless-stopped
+    env_file:
+      - .env                                         # sensitive vars (token, password, certs)
     environment:
       # ── Home Assistant ─────────────────────────────────────────────
-      HA_TOKEN: "your_long_lived_access_token"       # Profile → Security → Long-Lived Access Tokens
       HA_WS_URL: "ws://192.168.1.x:8123/api/websocket"
 
       # ── MQTT Broker ────────────────────────────────────────────────
@@ -14,10 +15,6 @@ services:
       BROKER_HOST: "192.168.1.x"
       BROKER_PORT: "1883"
       BROKER_USERNAME: "mqtt_downstream"
-      BROKER_PASSWORD: "your_broker_password"
-      BROKER_TLS_CA: ""                              # base64-encoded CA cert — see docs/mqtt-tls.md
-      BROKER_TLS_CERT: ""                            # base64-encoded client cert (optional)
-      BROKER_TLS_KEY: ""                             # base64-encoded client key (optional)
 
       # ── Entity selection (input_select entity IDs in HA) ───────────
       ENTITIES_SELECT: "input_select.mqtt_downstream_entities"

@@ -189,6 +189,14 @@ def get_attribute_payloads(domain: str, attrs: dict) -> dict[str, str]:
             result["battery_level"] = str(battery)
         return result
 
+    if domain == "timer":
+        result = {}
+        for key in ("duration", "remaining", "finishes_at"):
+            val = a.get(key)
+            if val is not None:
+                result[key] = str(val)
+        return result
+
     return {}
 
 
@@ -530,6 +538,15 @@ def discovery_payload(entity_id: str, state_obj: dict, mqtt_base: str, discovery
     if domain == "remote":
         return {**common,
             "command_topic": f"{base}/send_command",
+        }
+
+    if domain == "timer":
+        # HA has no native MQTT timer type — represent as a read-only sensor.
+        # State values: idle, active, paused
+        # Attributes (duration, remaining, finishes_at) published as JSON to attributes topic.
+        return {**common,
+            "icon":                  "mdi:timer-outline",
+            "json_attributes_topic": f"{base}/attributes",
         }
 
     return None  # unsupported domain
