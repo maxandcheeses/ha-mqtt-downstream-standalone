@@ -15,6 +15,9 @@ services:
       BROKER_PORT: "1883"
       BROKER_USERNAME: "mqtt_downstream"
       BROKER_PASSWORD: "your_broker_password"
+      BROKER_TLS_CA: ""                              # base64-encoded CA cert — see docs/mqtt-tls.md
+      BROKER_TLS_CERT: ""                            # base64-encoded client cert (optional)
+      BROKER_TLS_KEY: ""                             # base64-encoded client key (optional)
 
       # ── Entity selection (input_select entity IDs in HA) ───────────
       ENTITIES_SELECT: "input_select.mqtt_downstream_entities"

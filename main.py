@@ -8,6 +8,9 @@ Connects to HA via WebSocket and a downstream MQTT broker (system default or cus
 """
 
 import asyncio
+import base64
+import ssl
+import tempfile
 import fnmatch
 import json
 import logging
@@ -56,6 +59,9 @@ BROKER_HOST      = _require("BROKER_HOST", "core-mosquitto")
 BROKER_PORT      = int(_require("BROKER_PORT") or 1883)
 BROKER_USERNAME  = _require("BROKER_USERNAME")
 BROKER_PASSWORD  = _require("BROKER_PASSWORD")
+BROKER_TLS_CA    = _require("BROKER_TLS_CA")    # base64-encoded CA cert (PEM)
+BROKER_TLS_CERT  = _require("BROKER_TLS_CERT")  # base64-encoded client cert (PEM)
+BROKER_TLS_KEY   = _require("BROKER_TLS_KEY")   # base64-encoded client key (PEM)
 DEBUG            = os.environ.get("DEBUG", "").lower() in ("1", "true", "yes")
 RETAIN          = os.environ.get("RETAIN", "").lower() in ("1", "true", "yes")
 BIRTH_TOPIC        = f"{MQTT_BASE}/status"
@@ -376,6 +382,39 @@ class MQTTDownstream:
         if BROKER_USERNAME:
             self.mqttc.username_pw_set(BROKER_USERNAME, BROKER_PASSWORD)
 
+        # ── TLS ───────────────────────────────────────────────────────────────
+        if BROKER_TLS_CA:
+            try:
+                # Decode base64 certs into temp files — paho requires file paths
+                self._tls_tmpfiles = []
+                def _b64_to_tmp(b64: str, suffix: str) -> str:
+                    data = base64.b64decode(b64)
+                    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
+                    tmp.write(data)
+                    tmp.flush()
+                    self._tls_tmpfiles.append(tmp.name)
+                    return tmp.name
+
+                ca_path   = _b64_to_tmp(BROKER_TLS_CA,   ".ca.pem")
+                cert_path = _b64_to_tmp(BROKER_TLS_CERT, ".cert.pem") if BROKER_TLS_CERT else None
+                key_path  = _b64_to_tmp(BROKER_TLS_KEY,  ".key.pem")  if BROKER_TLS_KEY  else None
+                self.mqttc.tls_set(
+                    ca_certs    = ca_path,
+                    certfile    = cert_path,
+                    keyfile     = key_path,
+                    tls_version = ssl.PROTOCOL_TLS_CLIENT,
+                )
+                log.info("MQTT TLS enabled (CA cert provided%s)",
+                    ", client cert provided" if cert_path else "")
+            except Exception as exc:
+                log.error("Failed to configure MQTT TLS: %s — aborting", exc)
+                raise SystemExit(1)
+        else:
+            log.warning(
+                "MQTT TLS is NOT configured — broker traffic is unencrypted. "
+                "See docs/mqtt-tls.md for why this matters and how to set up certs."
+            )
+
         def on_connect(client, userdata, flags, reason_code, properties=None):
             if reason_code != 0:
                 log.error("MQTT connection failed (rc=%s)", reason_code)
@@ -404,6 +443,7 @@ class MQTTDownstream:
             self.mqttc.will_set(HEARTBEAT_TOPIC, payload="offline", retain=True)
         self.mqttc.connect(BROKER_HOST, BROKER_PORT, keepalive=60)
         self.mqttc.loop_start()
+
 
     # ── Publish ───────────────────────────────────────────────────────────────
 

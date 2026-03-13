@@ -2,7 +2,7 @@
 
 ![MQTT Downstream](logo.png)
 
-A standalone Docker container version of the [MQTT Downstream](https://github.com/maxandcheeses/mqtt-downstream-addon) HA addon. Runs on any host with Docker — does not require Home Assistant OS or the Supervisor.
+A standalone Docker container version of the [MQTT Downstream](https://github.com/maxandcheeses/ha-mqtt-downstream-addon) HA addon. Runs on any host with Docker — does not require Home Assistant OS or the Supervisor.
 
 ## Differences from the HA addon
 
@@ -18,7 +18,7 @@ A standalone Docker container version of the [MQTT Downstream](https://github.co
 - A running Home Assistant instance accessible on the network
 - A Long-Lived Access Token from **HA Profile → Security → Long-Lived Access Tokens**
 - An MQTT broker accessible to both this container and your downstream HA instance
-- The `input_select` helpers created in HA (see main [README](https://github.com/maxandcheeses/mqtt-downstream-addon))
+- The `input_select` helpers created in HA (see main [README](https://github.com/maxandcheeses/ha-mqtt-downstream-addon))
 
 ## Quick start
 
@@ -49,6 +49,9 @@ All configuration is via environment variables. Set them in `docker-compose.yml`
 | `BROKER_HOST` | ✅ | — | MQTT broker hostname or IP |
 | `BROKER_USERNAME` | ✅ | — | MQTT broker username |
 | `BROKER_PASSWORD` | ✅ | — | MQTT broker password |
+| `BROKER_TLS_CA` | ❌ | — | Base64-encoded CA certificate (PEM). Required to enable TLS. See [docs/mqtt-tls.md](docs/mqtt-tls.md) |
+| `BROKER_TLS_CERT` | ❌ | — | Base64-encoded client certificate (PEM). Only required if your broker uses mutual TLS |
+| `BROKER_TLS_KEY` | ❌ | — | Base64-encoded client private key (PEM). Only required if your broker uses mutual TLS |
 | `ENTITIES_SELECT` | ⚠️ | `input_select.mqtt_downstream_entities` | `input_select` entity ID for entity glob patterns |
 | `AREAS_SELECT` | ⚠️ | `input_select.mqtt_downstream_areas` | `input_select` entity ID for area names |
 | `DOMAINS_SELECT` | ⚠️ | `input_select.mqtt_downstream_domains` | `input_select` entity ID for domain includes |
@@ -80,3 +83,28 @@ docker run -d --name mqtt_downstream \
   --restart unless-stopped \
   mqtt-downstream
 ```
+
+## TLS / Encrypted MQTT
+
+Set `BROKER_TLS_CA` to enable TLS. See [docs/mqtt-tls.md](docs/mqtt-tls.md) for the full guide.
+
+```bash
+# Convert certs to base64 (Linux)
+export BROKER_TLS_CA=$(cat ca.crt | base64 -w 0)
+export BROKER_TLS_CERT=$(cat client.crt | base64 -w 0)   # only if broker requires mutual TLS
+export BROKER_TLS_KEY=$(cat client.key | base64 -w 0)    # only if broker requires mutual TLS
+```
+
+On macOS, omit `-w 0` (it is not supported): `cat ca.crt | base64`
+
+Or paste the base64 strings directly into `docker-compose.yml`. Leave `BROKER_TLS_CERT` and `BROKER_TLS_KEY` empty for standard one-way TLS.
+
+If `BROKER_TLS_CA` is not set, the container connects on plain TCP and logs a warning.
+
+---
+
+## Support
+
+If this container saves you some time or adds value to your setup, consider buying me a home automation toy 🤖
+
+[![Buy Me A Home Automation Toy](https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png)](https://www.buymeacoffee.com/maxwellluong)
