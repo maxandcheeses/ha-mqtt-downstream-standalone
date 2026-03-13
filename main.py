@@ -487,15 +487,10 @@ class MQTTDownstream:
         base   = f"{MQTT_BASE}/{domain}/{slug}"
 
         if domain == "timer":
-            # Publish computed remaining as state when active, raw state otherwise
+            # Publish state (idle/active/paused) and attributes (duration, finishes_at)
+            # Guest HA can derive remaining via a template: (as_datetime(finishes_at) - now())
+            self.mqttc.publish(f"{base}/state", state, retain=RETAIN)
             attr_payloads = get_attribute_payloads(domain, attrs)
-            if state == "active" and "remaining" in attr_payloads:
-                state_value = attr_payloads["remaining"]
-            elif state == "paused" and "remaining" in attr_payloads:
-                state_value = f"paused ({attr_payloads['remaining']})"
-            else:
-                state_value = state  # idle
-            self.mqttc.publish(f"{base}/state", state_value, retain=RETAIN)
             if attr_payloads:
                 self.mqttc.publish(f"{base}/attributes", json.dumps(attr_payloads), retain=RETAIN)
         else:
