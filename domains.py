@@ -201,10 +201,26 @@ def get_attribute_payloads(domain: str, attrs: dict) -> dict[str, str]:
 
     if domain == "timer":
         result = {}
-        for key in ("duration", "remaining", "finishes_at"):
+        for key in ("duration", "finishes_at"):
             val = a.get(key)
             if val is not None:
                 result[key] = str(val)
+        # Compute live remaining from finishes_at when active, else use stored remaining
+        finishes_at = a.get("finishes_at")
+        if finishes_at:
+            try:
+                finish_dt = datetime.datetime.fromisoformat(finishes_at)
+                now = datetime.datetime.now(datetime.timezone.utc)
+                remaining_secs = max(0.0, (finish_dt - now).total_seconds())
+                hours, rem = divmod(int(remaining_secs), 3600)
+                minutes, seconds = divmod(rem, 60)
+                result["remaining"] = f"{hours}:{minutes:02d}:{seconds:02d}"
+                result["remaining_seconds"] = str(int(remaining_secs))
+            except (ValueError, TypeError):
+                if a.get("remaining"):
+                    result["remaining"] = str(a["remaining"])
+        elif a.get("remaining"):
+            result["remaining"] = str(a["remaining"])
         return result
 
     return {}

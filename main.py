@@ -486,14 +486,21 @@ class MQTTDownstream:
         slug   = entity_slug(entity_id)
         base   = f"{MQTT_BASE}/{domain}/{slug}"
 
-        self.mqttc.publish(f"{base}/state", format_state(state, domain), retain=RETAIN)
-        attr_payloads = get_attribute_payloads(domain, attrs)
         if domain == "timer":
-            # Timer attributes published as a single JSON blob to json_attributes_topic
+            # Publish computed remaining as state when active, raw state otherwise
+            attr_payloads = get_attribute_payloads(domain, attrs)
+            if state == "active" and "remaining" in attr_payloads:
+                state_value = attr_payloads["remaining"]
+            elif state == "paused" and "remaining" in attr_payloads:
+                state_value = f"paused ({attr_payloads['remaining']})"
+            else:
+                state_value = state  # idle
+            self.mqttc.publish(f"{base}/state", state_value, retain=RETAIN)
             if attr_payloads:
                 self.mqttc.publish(f"{base}/attributes", json.dumps(attr_payloads), retain=RETAIN)
         else:
-            for subtopic, payload in attr_payloads.items():
+            self.mqttc.publish(f"{base}/state", format_state(state, domain), retain=RETAIN)
+            for subtopic, payload in get_attribute_payloads(domain, attrs).items():
                 self.mqttc.publish(f"{base}/{subtopic}", payload, retain=RETAIN)
 
     def _publish_discovery(self, entity_id: str, state_obj: dict):
