@@ -1,0 +1,83 @@
+# Guest HA — Timer Sync Automation (Generic)
+#
+# Prerequisites:
+#   1. MQTT Downstream is publishing each source timer as a sensor on guest HA
+#      e.g. sensor.guest_bathroom_vent_timer (state: active/paused/idle,
+#           attributes: finishes_at, duration)
+#
+#   2. A matching real timer entity exists on guest HA for each sensor:
+#      Add to configuration.yaml:
+#
+#        timer:
+#          guest_bathroom_vent_timer:
+#            name: "Guest Bathroom Vent Timer"
+#            icon: mdi:timer-outline
+#          some_other_timer:
+#            name: "Some Other Timer"
+#            icon: mdi:timer-outline
+#
+# How it works:
+#   - Triggers on any sensor in the list
+#   - Derives the matching timer entity_id by replacing 'sensor.' with 'timer.'
+#   - active → starts the matching timer with remaining duration from finishes_at
+#   - paused → pauses the matching timer
+#   - idle   → cancels the matching timer
+
+automation:
+  - id: sync_mqtt_downstream_timers
+    alias: "Sync MQTT Downstream Timers"
+    description: "Mirrors source timer states to native guest HA timer entities"
+    trigger:
+      - platform: state
+        entity_id:
+          - sensor.guest_bathroom_vent_timer
+          # Add more timers here:
+          # - sensor.some_other_timer
+    action:
+      - variables:
+          timer_entity: "{{ trigger.entity_id | replace('sensor.', 'timer.') }}"
+          finishes_at: "{{ state_attr(trigger.entity_id, 'finishes_at') }}"
+          duration: "{{ state_attr(trigger.entity_id, 'duration') or '00:00:00' }}"
+          remaining_secs: >
+            {% if finishes_at %}
+              {{ [(as_datetime(finishes_at) - now()).total_seconds() | int, 0] | max }}
+            {% else %}
+              0
+            {% endif %}
+          remaining_formatted: >
+            {% set s = remaining_secs | int %}
+            {{ '%02d:%02d:%02d' | format(s // 3600, (s % 3600) // 60, s % 60) }}
+
+      - choose:
+
+          # ── active → start with remaining duration from finishes_at ──────────
+          - conditions:
+              - condition: template
+                value_template: "{{ trigger.to_state.state == 'active' }}"
+            sequence:
+              - service: timer.start
+                target:
+                  entity_id: "{{ timer_entity }}"
+                data:
+                  duration: "{{ remaining_formatted if finishes_at else duration }}"
+
+          # ── paused → pause ───────────────────────────────────────────────────
+          - conditions:
+              - condition: template
+                value_template: "{{ trigger.to_state.state == 'paused' }}"
+            sequence:
+              - service: timer.pause
+                target:
+                  entity_id: "{{ timer_entity }}"
+
+          # ── idle → cancel ────────────────────────────────────────────────────
+          - conditions:
+              - condition: template
+                value_template: "{{ trigger.to_state.state == 'idle' }}"
+            sequence:
+              - service: timer.cancel
+                target:
+                  entity_id: "{{ timer_entity }}"
+
+    mode: parallel  # allow multiple timers to sync simultaneously
+    max: 10
