@@ -84,6 +84,81 @@ docker run -d --name mqtt_downstream \
   mqtt-downstream
 ```
 
+## Timers
+
+Timer entities are published as a `sensor` on the downstream HA (HA has no native MQTT timer discovery type). The sensor state reflects `idle`, `active`, or `paused`, with `duration` and `finishes_at` as attributes.
+
+To get a fully functional native timer on guest HA that counts down live, create a matching `timer` entity and use an automation to mirror the state:
+
+**1. Declare the timer in guest HA `configuration.yaml`:**
+
+```yaml
+timer:
+  guest_bathroom_vent_timer:
+    name: "Guest Bathroom Vent Timer"
+    icon: mdi:timer-outline
+```
+
+**2. Add the sync automation to `/config/automations/timer-sync.yaml`:**
+
+```yaml
+automation:
+  - alias: "Sync MQTT Downstream Timers"
+    description: "Mirrors source timer states to native guest HA timer entities"
+    trigger:
+      - platform: state
+        entity_id:
+          - sensor.guest_bathroom_vent_timer
+          # - sensor.another_timer
+    action:
+      - variables:
+          timer_entity: "{{ trigger.entity_id | replace('sensor.', 'timer.') }}"
+          finishes_at: "{{ state_attr(trigger.entity_id, 'finishes_at') }}"
+          duration: "{{ state_attr(trigger.entity_id, 'duration') or '00:00:00' }}"
+          remaining_secs: >
+            {% if finishes_at %}
+              {{ [(as_datetime(finishes_at) - now()).total_seconds() | int, 0] | max }}
+            {% else %}
+              0
+            {% endif %}
+          remaining_formatted: >
+            {% set s = remaining_secs | int %}
+            {{ '%02d:%02d:%02d' | format(s // 3600, (s % 3600) // 60, s % 60) }}
+      - choose:
+          - conditions:
+              - condition: template
+                value_template: "{{ trigger.to_state.state == 'active' }}"
+            sequence:
+              - service: timer.start
+                target:
+                  entity_id: "{{ timer_entity }}"
+                data:
+                  duration: "{{ remaining_formatted if finishes_at else duration }}"
+          - conditions:
+              - condition: template
+                value_template: "{{ trigger.to_state.state == 'paused' }}"
+            sequence:
+              - service: timer.pause
+                target:
+                  entity_id: "{{ timer_entity }}"
+          - conditions:
+              - condition: template
+                value_template: "{{ trigger.to_state.state == 'idle' }}"
+            sequence:
+              - service: timer.cancel
+                target:
+                  entity_id: "{{ timer_entity }}"
+    mode: parallel
+    max: 10
+```
+
+The automation derives the target `timer.` entity ID automatically from the triggering `sensor.` entity ID, so adding a new timer only requires adding one line to the trigger list. Guest HA users can interact with the timer locally — the automation will re-sync it to the source state on the next state change event.
+
+If you split automations into separate files, include the directory in `configuration.yaml`:
+```yaml
+automation: !include_dir_merge_list automations/
+```
+
 ## TLS / Encrypted MQTT
 
 Set `BROKER_TLS_CA` to enable TLS. See [docs/mqtt-tls.md](https://github.com/maxandcheeses/ha-mqtt-downstream-standalone/blob/main/docs/mqtt-tls.md) for the full guide.
